@@ -19,22 +19,42 @@ SAME_BOX_THRESHORD = 5
 # num of alpabets
 
 class Figure:
-    def __init__(self,shape, rects, text):
-        areas = [rect.area for rect in rects]
+
+    year_array = map(str,range(2000,2020));
+    month_array = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec' ]
+    week_array = ['mon','tue','wed','thu','fri','sat','sun']
+    def __init__(self,shape, rects, text, whole_shape, label):
+        whole_height, whole_width = map(float,whole_shape)
+        whole_area = whole_height*whole_width
+        areas = [rect.area/whole_area for rect in rects]
         self.num_box = len(rects)  # num of inner boxs
         if self.num_box==0:
             self.num_box = 1;
             areas = [0]
-        self.num_box_inv = 1.0/self.num_box  # 1 / num of inner boxs
+        #self.num_box_inv = 1.0/self.num_box  # 1 / num of inner boxs
         self.avg_box = np.average(areas)  # average size of inner boxs
         self.mid_box = np.median(areas)  # middian of inner boxs
         self.var_box = np.var(areas)  # variance of inner boxs
-        self.width = shape[1]
-        self.width_inv = 1.0/shape[1]
-        self.heigth = shape[0]
-        self.heigth_inv = 1.0/shape[0]
+        self.width = shape[1]/whole_width
+        #self.width_inv = 1.0/shape[1]
+        self.heigth = shape[0]/whole_height
+        #self.heigth_inv = 1.0/shape[0]
         self.num_int = sum(c.isdigit() for c in text)  # num of integers
         self.num_alpha = sum(c.isalpha() for c in text)  # num of alpabets
+        self.label = label
+        self.num_special = len(text)-self.num_alpha-self.num_int;
+        if any(year in text.lower() for year in self.year_array):
+            self.has_year = True
+        else:
+            self.has_year = False
+        if any(month in text.lower() for month in self.month_array):
+            self.has_month = True
+        else:
+            self.has_month = False
+        if any(week in text.lower() for week in self.week_array):
+            self.has_week = True
+        else:
+            self.has_week = False
 
 class Rect:
     def __init__(self,x,y,w,h):
@@ -83,50 +103,78 @@ def dectect_boxs_in_block(img_origin): #
             rects.append(rect)
 
     ##print block
-    """
+
     for rect in rects: #draw boxs to image
         box = cv2.boxPoints(rect.get_tuple())
         box = np.int0(box)
         img_gray = cv2.drawContours(img_gray,[box],0,(random.randrange(0,256),random.randrange(0,256),random.randrange(0,256)),1)
-
+    """
     while(2):
         cv2.imshow("cropped", img_gray)
         if cv2.waitKey(33) == 27:
             break
-
-    show_imgs([img_origin, bw_img, img_after_erode, img_gray])
     """
+    #show_imgs([img_origin, bw_img, img_after_erode, img_gray])
+
 
     return rects
 
-def get_figures_of_block(img, rects_inner): # use dectect_boxs_in_block, automatcally make figure class
+def get_figures_of_block(img, rects_inner, whole_shape): # use dectect_boxs_in_block, automatcally make figure class
     shape = img.shape
     img_ocr = Image.fromarray(img)
-    txt = pytesseract.image_to_string(img_ocr, lang='Eng')
-    """
-    print "text :" ,txt
-    while(2):
-        cv2.imshow("cropped", img)
-        if cv2.waitKey(33) == 27:
-            break
-    """
-    return Figure(shape, rects_inner, txt)
+    txt = pytesseract.image_to_string(img_ocr, lang='eng')
 
-def get_figures_of_blocks(img, rects_outter):
+    print "text :", txt
+    img_gray = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    for rect in rects_inner: #draw boxs to image
+        box = cv2.boxPoints(rect.get_tuple())
+        box = np.int0(box)
+        img_gray = cv2.drawContours(img_gray,[box],0,(random.randrange(0,256),random.randrange(0,256),random.randrange(0,256)),1)
+    label = 0
+    while(2):
+        cv2.imshow("cropped", img_gray)
+        temp = cv2.waitKey(33)
+        if temp == 49:
+            label = 1
+            break
+        elif temp == 50:
+            label = 2
+            break
+        elif temp == 27 or temp == 48:
+            label = 0
+            break
+    print_figure(Figure(shape, rects_inner, txt, whole_shape, label))
+
+
+
+    return Figure(shape, rects_inner, txt, whole_shape, label)
+
+def get_figures_of_blocks(img_origin, rects_outter, resize_ratio, padding):
+    whole_shape = img_origin.shape
     figures = []
     for rect in rects_outter:
         rect.change_size(1.0/resize_ratio,padding)
         rect.change_location(1.0/resize_ratio,padding)
         crop_img = cv2.getRectSubPix(img_origin, rect.get_tuple()[1], rect.get_tuple()[0])
         rects_inner = dectect_boxs_in_block(crop_img)
-        figure = get_figures_of_block(crop_img, rects_inner)
+        figure = get_figures_of_block(crop_img, rects_inner, whole_shape)
         figures.append(figure)
     return figures
 
-def print_figures(figures):
+def save_figures_to_text(figures, filename):
+    f = open("C:/Users/min/PycharmProjects/MLPJ/txt/" + filename + ".txt", 'w')
     for figure in figures:
         attrs = vars(figure)
-        print ', '.join("%s %s, " % item for item in attrs.items())
+        data = ', '.join("%s: %s " % item for item in sorted(attrs.items()))
+        f.write(data + "\n")
+    f.close()
+
+def print_figures(figures):
+    for figure in figures:
+        print_figure(figure)
+def print_figure(figure):
+    attrs = vars(figure)
+    print ', '.join("%s: %s " % item for item in sorted(attrs.items()))
 def show_imgs(img_array):
     n = 100+len(img_array)*10 + 1
     for i, img in enumerate(img_array):
@@ -221,9 +269,10 @@ def detect_letter_boxs(img_origin):
 
     return [img_after_erode1, img_after_erode2, img_after_erode3, img_contours_boxing], rects, resize_ratio, padding
 
-for i in range(20):
+for i in range(113,118):
     img_origin = cv2.imread("C:/Users/min/PycharmProjects/MLPJ/posters/" + str(i) + ".jpg", 0)
     imgs, rects, resize_ratio, padding = detect_letter_boxs(img_origin)
     show_imgs(imgs)
-    figures = get_figures_of_blocks(img_origin, rects)
-    print_figures(figures)
+    figures = get_figures_of_blocks(img_origin, rects, resize_ratio, padding)
+    save_figures_to_text(figures, str(i))
+    #print_figures(figures)
