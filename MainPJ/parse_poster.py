@@ -1,9 +1,9 @@
 import cv2
+import pytesseract
 import numpy as np
 from matplotlib import pyplot as plt
 import random
 from PIL import Image
-import pytesseract
 
 
 SAME_BOX_THRESHORD = 5
@@ -34,7 +34,7 @@ class Figure:
         #self.num_box_inv = 1.0/self.num_box  # 1 / num of inner boxs
         self.avg_box = np.average(areas)  # average size of inner boxs
         self.mid_box = np.median(areas)  # middian of inner boxs
-        self.var_box = np.var(areas)  # variance of inner boxs
+        self.var_box = np.var(areas)*1e+05  # variance of inner boxs
         self.width = shape[1]/whole_width
         #self.width_inv = 1.0/shape[1]
         self.heigth = shape[0]/whole_height
@@ -44,17 +44,17 @@ class Figure:
         self.label = label
         self.num_special = len(text)-self.num_alpha-self.num_int;
         if any(year in text.lower() for year in self.year_array):
-            self.has_year = True
+            self.has_year = 1
         else:
-            self.has_year = False
+            self.has_year = 0
         if any(month in text.lower() for month in self.month_array):
-            self.has_month = True
+            self.has_month = 1
         else:
-            self.has_month = False
+            self.has_month = 0
         if any(week in text.lower() for week in self.week_array):
-            self.has_week = True
+            self.has_week = 1
         else:
-            self.has_week = False
+            self.has_week = 0
 
 class Rect:
     def __init__(self,x,y,w,h):
@@ -71,6 +71,12 @@ class Rect:
     def change_location(self, ratio, bias=0):
         self.x = int(self.x * ratio + bias)
         self.y = int(self.y * ratio + bias)
+    def change_size_inv(self, ratio, bias=0):
+        self.w = int((self.w+bias) * ratio)
+        self.h = int((self.h+bias) * ratio)
+    def change_location_inv(self, ratio, bias=0):
+        self.x = int((self.x+bias) * ratio)
+        self.y = int((self.y+bias) * ratio)
 
 def dectect_boxs_in_block(img_origin): #
     img_w, img_h = img_origin.shape
@@ -124,13 +130,14 @@ def get_figures_of_block(img, rects_inner, whole_shape): # use dectect_boxs_in_b
     img_ocr = Image.fromarray(img)
     txt = pytesseract.image_to_string(img_ocr, lang='eng')
 
-    print "text :", txt
+    #print "text :", txt
     img_gray = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     for rect in rects_inner: #draw boxs to image
         box = cv2.boxPoints(rect.get_tuple())
         box = np.int0(box)
         img_gray = cv2.drawContours(img_gray,[box],0,(random.randrange(0,256),random.randrange(0,256),random.randrange(0,256)),1)
     label = 0
+    """
     while(2):
         cv2.imshow("cropped", img_gray)
         temp = cv2.waitKey(33)
@@ -143,7 +150,8 @@ def get_figures_of_block(img, rects_inner, whole_shape): # use dectect_boxs_in_b
         elif temp == 27 or temp == 48:
             label = 0
             break
-    print_figure(Figure(shape, rects_inner, txt, whole_shape, label))
+    """
+    #print_figure(Figure(shape, rects_inner, txt, whole_shape, label))
 
 
 
@@ -175,13 +183,28 @@ def print_figures(figures):
 def print_figure(figure):
     attrs = vars(figure)
     print ', '.join("%s: %s " % item for item in sorted(attrs.items()))
+def figures_array(figures):
+    array = []
+    for figure in figures:
+        array.append(figure_array(figure))
+    return array
+def figure_array(figure):
+    attrs = vars(figure)
+    return [round(item[1],6) for item in sorted(attrs.items()) if item[0] != 'label']
+
 def show_imgs(img_array):
     n = 100+len(img_array)*10 + 1
     for i, img in enumerate(img_array):
         plt.xticks([]), plt.yticks([])
         plt.subplot(n+i), plt.imshow(img, cmap='gray')
+    mng = plt.get_current_fig_manager()
+    mng.frame.Maximize(True)
     plt.show()
-
+def show_img(img):
+    n = 100+1*10 + 1
+    plt.xticks([]), plt.yticks([])
+    plt.subplot(n), plt.imshow(img, cmap='gray')
+    plt.show()
 def detect_letter_boxs_with_size(img_origin, ratio):
     rows, cols = img_origin.shape
     img = cv2.resize(img_origin,(int(cols*ratio),int(rows*ratio)))
@@ -269,10 +292,66 @@ def detect_letter_boxs(img_origin):
 
     return [img_after_erode1, img_after_erode2, img_after_erode3, img_contours_boxing], rects, resize_ratio, padding
 
-for i in range(113,118):
-    img_origin = cv2.imread("C:/Users/min/PycharmProjects/MLPJ/posters/" + str(i) + ".jpg", 0)
+def detect_boxs_type(img_origin, rects, predict):
+    # remove edge padding of the poster
+    rows_origin, cols_origin = img_origin.shape
+    padding = rows_origin/100
+    img = img_origin[padding:rows_origin-padding, padding:cols_origin-padding]
+    rows, cols = img.shape
+    resize_ratio = 300.0/rows
+    img = cv2.resize(img,(int(resize_ratio*cols),300))
+    #img_origin = img
+    img_gray = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    img_contours_boxing = img_gray
+
+    for i, rect in enumerate(rects): # draw boxs to image
+        rect.change_size_inv(resize_ratio,-padding)
+        rect.change_location_inv(resize_ratio,-padding)
+        box = cv2.boxPoints(rect.get_tuple())
+        box = np.int0(box)
+        img_contours_boxing = cv2.drawContours(img_contours_boxing,[box],0,(int(256*predict[i][1]),0,int(256*predict[i][2])),1)
+        #(random.randrange(0,256),random.randrange(0,256),random.randrange(0,256))
+    return img_contours_boxing
+
+def detect_boxs_type_maximum(img_origin, rects, predict):
+    # remove edge padding of the poster
+    rows_origin, cols_origin = img_origin.shape
+    padding = rows_origin/100
+    img = img_origin[padding:rows_origin-padding, padding:cols_origin-padding]
+    rows, cols = img.shape
+    resize_ratio = 300.0/rows
+    img = cv2.resize(img,(int(resize_ratio*cols),300))
+    #img_origin = img
+    img_gray = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    img_contours_boxing = img_gray
+    title_index = 0
+    date_index = 0
+    for i in range(len(predict)):
+        if predict[i][1]>predict[title_index][1]:
+            title_index = i
+        if predict[i][2]> predict[date_index][2]:
+            date_index = i
+    rect = rects[title_index]
+    #rect.change_size_inv(resize_ratio,-padding)
+    #rect.change_location_inv(resize_ratio,-padding)
+    box = cv2.boxPoints(rect.get_tuple())
+    box = np.int0(box)
+    img_contours_boxing = cv2.drawContours(img_contours_boxing,[box],0,(256,0,0),1)
+
+    rect = rects[date_index]
+    #rect.change_size_inv(resize_ratio,-padding)
+    #rect.change_location_inv(resize_ratio,-padding)
+    box = cv2.boxPoints(rect.get_tuple())
+    box = np.int0(box)
+    img_contours_boxing = cv2.drawContours(img_contours_boxing,[box],0,(0,0,256),1)
+    return img_contours_boxing
+
+"""
+for i in range(1):
+    img_origin = cv2.imread("image/" + str(i) + ".jpg", 0)
     imgs, rects, resize_ratio, padding = detect_letter_boxs(img_origin)
     show_imgs(imgs)
     figures = get_figures_of_blocks(img_origin, rects, resize_ratio, padding)
     save_figures_to_text(figures, str(i))
-    #print_figures(figures)
+    print_figures(figures)
+"""
